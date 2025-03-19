@@ -45,6 +45,16 @@ title("Simulated amount of boys in 200 births - red line is real value")
 **3H4.**
 Now compare 10,000 counts of boys from 100 simulated first borns only to the number of boys in the first births, birth1. How does the model look in this light?
 ```{r}
+set.seed(1)
+W4 <- sum(birth1)
+N4 <- length(birth1)
+
+
+# Simulate births using sampled probabilities as simulation input, and check if they allign with real value.
+simulated_births4 <- rbinom(n = 1e4, size = N4, prob = samples)
+rethinking::dens(simulated_births4,show.HPDI = 0.95)
+abline(v=W4, col="red")
+title("Simulated amount of boys in 100 births - red line is real value")
 
 ```
 
@@ -52,8 +62,29 @@ Now compare 10,000 counts of boys from 100 simulated first borns only to the num
 **3H5.** 
 The model assumes that sex of first and second births are independent. To check this assumption, focus now on second births that followed female first borns. Compare 10,000 simulated counts of boys to only those second births that followed girls. To do this correctly, you need to cound the number of first borns who were girls and simulate that many births, 10,000 times. Compare the counts of boys in your simulations to the actual observed count of boys following girls. How does the model look in this light? Any guesses what is going on in these data?
 ```{r}
+# Number of first born girls
+counter <- 0
+for (i in birth1){
+  if (i == 0){
+    counter <- counter + 1
+  }
+}
+#counter #49
+
+#The births where girls are born first
+girls_first <- birth2[birth1 == 0]
+
+boys_after_girls <- sum(girls_first) #39 boys
+
+#Simulate boys folowing girls
+  sim_boys_girls <- rbinom(10000, size = counter, prob = samples)
+rethinking::dens(sim_boys_girls,show.HPDI = 0.95)
+abline(v = boys_after_girls)
 
 ```
+
+#### Answer: 
+The model is not doing very well since it doesn't reflect the real scenario (the vertical line is not even close to the peak of the distribution). This means that there might be a causal relationship between the gender of the second birth and the first birth.
 
 
 ## Chapter 5: Spurrious Correlations
@@ -67,11 +98,25 @@ Invent your own example of a spurious correlation. An outcome variable should be
 with both predictor variables. But when both predictors are entered in the same model, the correlation
 between the outcome and one of the predictors should mostly vanish (or at least be greatly reduced).
 
+#### Answer: 
+Outcome: It's good weather
+Preditcor 1: There's sun
+Predictor 2: People are eating ice cream
+
+One would expect that the second predictor mostly vanish when both predictors are entered into a model.
+
 
 **5M2**.
 Invent your own example of a masked relationship. An outcome variable should be correlated
 with both predictor variables, but in opposite directions. And the two predictor variables should be
 correlated with one another.
+
+#### Answer: 
+Outcome: Ratings of a restaurant
+Predictor 1: Food left at the end of the day
+Predictor 2: Number of people eating at the restaurant at the particular day
+
+One would expect that the ratings of the restaurant correlate with both the food that is left (if more food is left, we expect that the restaurant get worse ratings) in addition, we assume that the more people who visit the restaurant the better the ratings.
 
 
 **5M3**.
@@ -82,6 +127,13 @@ same reversal of causal inference in the context of the divorce and marriage dat
 divorce rate cause a higher marriage rate? Can you think of a way to evaluate this relationship, using
 multiple regression
 
+#### Answer: 
+In order to have high divorce rates many people need to get married (a certain percentage get divorced).
+In a classical multiple regression we set one of them as a predictor and the other one as the outcome variable: 
+marriage rate ~ a + divorce rate * b
+However, this doesn't show if divorce depends on marriage or vice versa.
+
+
 **5M5**.
 One way to reason through multiple causation hypotheses is to imagine detailed mechanisms
 through which predictor variables may influence outcomes. For example, it is sometimes argued that
@@ -91,6 +143,9 @@ reduce obesity. First, it could lead to less driving and therefore more exercise
 less driving, which leads to less eating out, which leads to less consumption of huge restaurant meals.
 Can you outline one or more multiple regressions that address these two mechanisms? Assume you
 can have any predictor data you need.
+
+#### Answer: 
+obesity ~ a + gasoline_price x b1 + number_of_people_exercising x b2 + time_people_exercise x b3 + consumption_of_huge_restaurant_meals x b4
 
 
 ## Chapter 5: Foxes and Pack Sizes  
@@ -104,15 +159,138 @@ All five exercises below use the same data, data(foxes) (part of rethinking).84 
 **5H1.** 
 Fit two bivariate Gaussian regressions, using quap: (1) body weight as a linear function of territory size (area), and (2) body weight as a linear function of groupsize. Plot the results of these regressions, displaying the MAP regression line and the 95% interval of the mean. Is either variable important for predicting fox body weight?
 ```{r}
+library(rethinking)
+pacman::p_load(tidybayes, tibble)
+data(foxes)
+fox_data <- foxes
+fox_data$A <- standardize(fox_data$area)
+fox_data$W <- standardize(fox_data$weight)
+fox_data$AF <- standardize(fox_data$avgfood)
+fox_data$G <- standardize(fox_data$group)
+fox_data$GS <- standardize(fox_data$groupsize)
+
+
+# Create model 1
+
+model_1 <- quap(alist(
+    W ~ dnorm(mu, sigma),
+    mu <- a + bA * A,
+    a ~ dnorm(0, 0.2),
+    bA ~ dnorm(0, 0.5),
+    sigma ~ dexp(1)
+  ), data = fox_data)
+
+#precis(model_1)
 
 ```
+
+
+
+```{r}
+#Plot - SOMETHING IS WRONG
+plot(W ~ A , data=fox_data, col=col.alpha(rangi2,0.4), 
+     main = "Area predicting weight (standardized values)")
+
+#Add line
+# Making an area sequency to make predictions
+area_seq <- seq(from = min(fox_data$A), to = max(fox_data$A), by = 0.1)
+mu_1 <- link(model_1, data = data.frame(A = area_seq))
+mu_mean_1 <- apply(mu_1, 2, mean)
+lines(area_seq, mu_mean_1)
+
+
+#95% interval
+mu_PI <- apply(mu_1, 2, PI, prob=0.95)
+shade(mu_PI, area_seq)
+```
+
+
+
+
+```{r}
+# Create model 2
+model_2 <- quap(alist(
+    W ~ dnorm(mu, sigma),
+    mu <- a + bGS * GS,
+    a ~ dnorm(0, 0.2),
+    bGS ~ dnorm(0, 0.5),
+    sigma ~ dexp(1)
+  ), data = fox_data)
+
+#precis(model_2)
+```
+
+```{r}
+#Plot - SOMETHING IS WRONG
+plot(W ~ GS , data=fox_data, col=col.alpha(rangi2,0.4), 
+     main = "Group size predicting weight (standardized values)")
+
+#Add line
+# Making an area sequency to make predictions
+GS_seq <- seq(from = min(fox_data$GS), to = max(fox_data$GS), by = 0.1)
+mu_2 <- link(model_2, data = data.frame(GS = GS_seq))
+mu_mean_2 <- apply(mu_2, 2, mean)
+lines(GS_seq, mu_mean_2)
+
+
+#95% interval
+mu_PI_2 <- apply(mu_2, 2, PI, prob=0.95)
+shade(mu_PI_2, GS_seq)
+```
+
+#### Answer: 
+The size of the area doesn't seem to influence the weight of the foxes. In addition, there might be a little tendency that group size can predict the weight of the foxes (the smaller the group the heavier the foxes).
 
 
 **5H2.**
 Now fit a multiple linear regression with weight as the outcome and both area and groupsize as predictor variables. Plot the predictions of the model for each predictor, holding the other predictor constant at its mean. What does this model say about the importance of each variable? Why do you get different results than you got in the exercise just above?
 ```{r}
+model_3 <- quap(alist(
+    W ~ dnorm(mu, sigma),
+    mu <- a + bGS * GS + bA * A,
+    a ~ dnorm(0, 0.2),
+    bGS ~ dnorm(0, 0.5),
+    bA ~ dnorm(0, 0.5),
+    sigma ~ dexp(1)
+  ), data = fox_data)
 
 ```
+
+```{r}
+mean_A <- mean(fox_data$A)
+
+plot(W ~ GS , data=fox_data, col=col.alpha(rangi2,0.4), 
+     main = "Group size predicting weight (standardizes). A constant at mean")
+
+mu_GS <- link(model_3, data = data.frame(GS = GS_seq, A = mean_A))
+mu_mean_GS <- apply(mu_GS, 2, mean)
+lines(GS_seq, mu_mean_GS)
+
+#95% interval
+mu_PI_GS <- apply(mu_GS, 2, PI, prob=0.95)
+shade(mu_PI_GS, GS_seq)
+
+```
+
+```{r}
+mean_GS <- mean(fox_data$GS)
+
+plot(W ~ A , data=fox_data, col=col.alpha(rangi2,0.4),
+     main = "Area predicting weight (standardizes). GS constant at mean")
+
+mu_A <- link(model_3, data = data.frame(A = area_seq, GS = mean_GS))
+mu_mean_A <- apply(mu_A, 2, mean)
+lines(area_seq, mu_mean_A)
+
+#95% interval
+mu_PI_A <- apply(mu_A, 2, PI, prob=0.95)
+shade(mu_PI_A, area_seq)
+
+```
+
+#### Answer: 
+In this model it seems like both of the variables are better at predicting weight (steeper slope).
+The predictors probably covary, but by keeping them constant at the mean we can observe how they interfere with the outcome variable weight of the foxes.
 
 
 **5H3.**
